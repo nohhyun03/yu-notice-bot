@@ -268,6 +268,12 @@ def send_telegram_message(token, chat_id, text, reply_markup=None):
 def main():
     logger.info("🤖 영남대 다중 공지사항 배치 프로그램 작동 시작 (Supabase 연동)...")
     
+    # ⚠️ [보안/안전 가드] 필수 환경변수 누락 시 무한 예외 통신 방지 및 즉각 자가 안전 종료
+    if not TELEGRAM_TOKEN or not SUPABASE_URL or not SUPABASE_KEY:
+        logger.error("🚨 [환경변수 에러] 필수 설정값(TELEGRAM_TOKEN, SUPABASE_URL, SUPABASE_KEY) 중 누락된 값이 있습니다.")
+        logger.error("   ㄴ 서버/로컬 폴더 내의 .env 파일 설정 상태를 다시 한번 확인해 주세요.")
+        sys.exit(1)
+        
     # 1. 사용자가 보낸 명령어 처리
     process_pending_commands(TELEGRAM_TOKEN)
     
