@@ -47,7 +47,7 @@ LAST_NOTICES_FILE = "last_notices.json"
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 
 # 미니 앱 URL (사용자의 GitHub Pages 주소)
-WEBAPP_URL = os.getenv("WEBAPP_URL", "https://nohhyun03.github.io/yu-notice-setting/")
+WEBAPP_URL = os.getenv("WEBAPP_URL", "https://nohhyun03.github.io/yu-notice-bot/")
 
 # Supabase 클라우드 DB 연동 설정
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -151,13 +151,21 @@ def send_menu(token, chat_id):
 # 4. 실시간 대화식 명령어 처리
 # ==========================================
 def process_pending_commands(token):
+    # ⚠️ 혹시 숨어있을 웹훅 세션을 강제 지우기하여 getUpdates 수신 방해 차단
+    try:
+        requests.get(f"https://api.telegram.org/bot{token}/deleteWebhook", timeout=5)
+    except Exception:
+        pass
+
     url = f"https://api.telegram.org/bot{token}/getUpdates"
     try:
         response = requests.get(url, timeout=10)
         if response.status_code != 200:
+            logger.info(f"⚠️ 대화 내역 수집 실패 (HTTP 상태코드: {response.status_code})")
             return
             
         updates = response.json().get("result", [])
+        logger.info(f"🔍 텔레그램 대기 중인 명령어 개수: {len(updates)}개")
         if not updates:
             return
             
@@ -170,8 +178,10 @@ def process_pending_commands(token):
                 msg = update["message"]
                 chat_id = msg["chat"]["id"]
                 text = msg.get("text", "").strip()
+                logger.info(f"   ㄴ 감지된 메시지 (Chat ID: {chat_id}): '{text}'")
                 
                 if text == "/start" or text == "/menu":
+                    logger.info(f"      👉 '{text}' 명령어 매칭 성공! 메뉴 버튼 카드 발송 요청")
                     send_menu(token, chat_id)
                     
         if last_update_id > 0:
@@ -267,7 +277,6 @@ def main():
         logger.info("⚠️ 등록된 구독자가 데이터베이스에 없습니다. 크롤링 단계를 건너뛰고 종료합니다.")
         return
         
-    # 3. 크롤링 대상 카테고리 필터링
     active_categories = set()
     for sub in subscribers:
         active_categories.update(sub.get("subscriptions", []))
