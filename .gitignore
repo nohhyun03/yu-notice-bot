@@ -1,0 +1,5 @@
+.env
+last_notices.json
+bot_run.log
+*.pyc
+__pycache__/

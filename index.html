@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>영대소식 알림 및 스크랩</title>
+    <!-- 구글 폰트: Outfit 적용 -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <!-- 텔레그램 공식 WebApp SDK 임포트 -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <!-- Supabase JS Client CDN 임포트 -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
+    <style>
+        :root {
+            --bg-color: #121214;
+            --card-color: #1e1e24;
+            --text-primary: #ffffff;
+            --text-secondary: #8e8e93;
+            --accent-color: #007aff;
+            --neon-blue: #00f0ff;
+            --neon-pink: #ff2d55;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Outfit', -apple-system, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            padding: 20px 20px 100px 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* 탭 메뉴 스타일 */
+        .tab-container {
+            width: 100%;
+            max-width: 480px;
+            display: flex;
+            background-color: var(--card-color);
+            border-radius: 12px;
+            padding: 4px;
+            margin-bottom: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .tab-btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            background: none;
+            color: var(--text-secondary);
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            text-align: center;
+        }
+
+        .tab-btn.active {
+            background-color: rgba(255, 255, 255, 0.05);
+            color: var(--neon-blue);
+            box-shadow: 0px 4px 10px rgba(0, 240, 255, 0.1);
+        }
+
+        /* 콘텐츠 영역 */
+        .tab-content {
+            width: 100%;
+            max-width: 480px;
+            display: none;
+            animation: fadeIn 0.4s ease;
+        }
+
+        .tab-content.active {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .header {
+            width: 100%;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #00f0ff, #007aff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 6px;
+        }
+
+        .header p {
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        /* 카드 UI */
+        .card {
+            background-color: var(--card-color);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            padding: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+
+        .card:active {
+            transform: scale(0.98);
+        }
+
+        .card-info {
+            flex: 1;
+            padding-right: 12px;
+        }
+
+        .card-info h3 {
+            font-size: 15px;
+            font-weight: 600;
+            margin-bottom: 4px;
+            line-height: 1.4;
+        }
+
+        .card-info p {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        /* iOS 스타일 토글 스위치 */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 51px;
+            height: 31px;
+            flex-shrink: 0;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #3a3a3c;
+            transition: .3s;
+            border-radius: 34px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 27px;
+            width: 27px;
+            left: 2px;
+            bottom: 2px;
+            background-color: white;
+            transition: .3s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider {
+            background: linear-gradient(135deg, var(--neon-blue), var(--accent-color));
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(20px);
+        }
+
+        /* 스크랩 보관함 전용 액션 버튼들 */
+        .bookmark-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+
+        .action-btn {
+            background: none;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .action-btn.view {
+            background-color: rgba(0, 240, 255, 0.1);
+            color: var(--neon-blue);
+            border: 1px solid rgba(0, 240, 255, 0.2);
+        }
+
+        .action-btn.view:active {
+            background-color: rgba(0, 240, 255, 0.2);
+        }
+
+        .action-btn.delete {
+            background-color: rgba(255, 45, 85, 0.1);
+            color: var(--neon-pink);
+            border: 1px solid rgba(255, 45, 85, 0.2);
+        }
+
+        .action-btn.delete:active {
+            background-color: rgba(255, 45, 85, 0.2);
+        }
+
+        /* 하단 저장 버튼 */
+        .footer-btn-container {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 20px;
+            background: linear-gradient(to top, var(--bg-color) 80%, transparent);
+            display: flex;
+            justify-content: center;
+            z-index: 10;
+        }
+
+        .save-btn {
+            width: 100%;
+            max-width: 440px;
+            padding: 16px;
+            border: none;
+            border-radius: 14px;
+            background: linear-gradient(135deg, var(--neon-blue), var(--accent-color));
+            color: white;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            box-shadow: 0px 8px 24px rgba(0, 240, 255, 0.2);
+            transition: all 0.3s ease;
+        }
+
+        .save-btn:active {
+            transform: scale(0.97);
+        }
+
+        /* 토스트 알림창 스타일 */
+        .toast {
+            position: fixed;
+            bottom: 90px;
+            left: 50%;
+            transform: translateX(-50%) translateY(20px);
+            background-color: rgba(30, 30, 36, 0.95);
+            border: 1px solid var(--neon-blue);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 30px;
+            font-size: 14px;
+            font-weight: 600;
+            box-shadow: 0px 8px 24px rgba(0, 240, 255, 0.2);
+            opacity: 0;
+            transition: all 0.3s ease;
+            z-index: 100;
+            pointer-events: none;
+            white-space: nowrap;
+        }
+
+        .toast.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
+
+        .empty-text {
+            text-align: center;
+            color: var(--text-secondary);
+            padding: 40px 0;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 상단 탭 메뉴 바 -->
+    <div class="tab-container">
+        <button class="tab-btn active" onclick="switchTab('setting-tab')">🔔 알림 설정</button>
+        <button class="tab-btn" onclick="switchTab('bookmark-tab')">📌 스크랩 보관함</button>
+    </div>
+
+    <!-- 탭 1: 알림 설정 화면 -->
+    <div id="setting-tab" class="tab-content active">
+        <div class="header">
+            <h1>알림 구독 설정</h1>
+            <p>받아보고 싶은 공지사항을 선택하세요.</p>
+        </div>
+        
+        <div class="card">
+            <div class="card-info">
+                <h3>일반 공지</h3>
+                <p>영남대 영대소식(학교공지)</p>
+            </div>
+            <label class="switch">
+                <input type="checkbox" id="general">
+                <span class="slider"></span>
+            </label>
+        </div>
+
+        <div class="card">
+            <div class="card-info">
+                <h3>컴퓨터학부</h3>
+                <p>컴퓨터학부 전체 공지</p>
+            </div>
+            <label class="switch">
+                <input type="checkbox" id="computer_dept">
+                <span class="slider"></span>
+            </label>
+        </div>
+
+        <div class="card">
+            <div class="card-info">
+                <h3>컴퓨터공학전공</h3>
+                <p>컴퓨터공학전공 맞춤 공지</p>
+            </div>
+            <label class="switch">
+                <input type="checkbox" id="computer_major">
+                <span class="slider"></span>
+            </label>
+        </div>
+
+        <div class="card">
+            <div class="card-info">
+                <h3>SW중심대학</h3>
+                <p>SW중심대학 사업단 공지</p>
+            </div>
+            <label class="switch">
+                <input type="checkbox" id="sw_edu">
+                <span class="slider"></span>
+            </label>
+        </div>
+
+        <div class="card">
+            <div class="card-info">
+                <h3>전자공학과</h3>
+                <p>전자공학과 최신 공지</p>
+            </div>
+            <label class="switch">
+                <input type="checkbox" id="electronics">
+                <span class="slider"></span>
+            </label>
+        </div>
+
+        <div class="card">
+            <div class="card-info">
+                <h3>기계공학과</h3>
+                <p>기계공학과 최신 공지</p>
+            </div>
+            <label class="switch">
+                <input type="checkbox" id="mechanical">
+                <span class="slider"></span>
+            </label>
+        </div>
+
+        <div class="card">
+            <div class="card-info">
+                <h3>경제금융학과</h3>
+                <p>경제금융학과 최신 공지</p>
+            </div>
+            <label class="switch">
+                <input type="checkbox" id="economics">
+                <span class="slider"></span>
+            </label>
+        </div>
+    </div>
+
+    <!-- 탭 2: 스크랩 보관함 화면 -->
+    <div id="bookmark-tab" class="tab-content">
+        <div class="header">
+            <h1>스크랩 보관함</h1>
+            <p>내가 중요하다고 체크해 둔 공지 모음집입니다.</p>
+        </div>
+        <div id="bookmark-list" style="display: flex; flex-direction: column; gap: 12px; width: 100%;">
+            <!-- 스크랩 카드들이 동적으로 추가됩니다 -->
+        </div>
+    </div>
+
+    <!-- 하단 고정 저장 버튼 (알림 설정 탭에서만 활성화) -->
+    <div class="footer-btn-container" id="footer-container">
+        <button class="save-btn" onclick="saveSettings()">설정 저장하기</button>
+    </div>
+
+    <!-- 실시간 알림 토스트 팝업 -->
+    <div id="toast" class="toast">스크랩 보관 완료! 📌</div>
+
+    <script>
+        // 1. 텔레그램 웹앱 초기화
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+        
+        const userId = tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : "8730998890";
+        const userName = tg.initDataUnsafe.user ? tg.initDataUnsafe.user.first_name : "사용자";
+
+        // 2. Supabase 클라이언트 초기화
+        const SUPABASE_URL = "https://whzsxrhqyidticgeyqif.supabase.co";
+        const SUPABASE_KEY = "sb_publishable_z_PLXc7vpikwVCHg4aV9hw_lfvozVBt";
+        const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        // 3. 토스트 팝업 표시 유틸리티
+        function showToast(message) {
+            const toast = document.getElementById("toast");
+            toast.innerText = message;
+            toast.classList.add("show");
+            setTimeout(() => {
+                toast.classList.remove("show");
+            }, 2500);
+        }
+
+        // 4. 탭 전환 기능
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            
+            if (tabId === 'setting-tab') {
+                document.querySelector('.tab-btn:nth-child(1)').classList.add('active');
+                document.getElementById('setting-tab').classList.add('active');
+                document.getElementById('footer-container').style.display = 'flex';
+            } else {
+                document.querySelector('.tab-btn:nth-child(2)').classList.add('active');
+                document.getElementById('bookmark-tab').classList.add('active');
+                document.getElementById('footer-container').style.display = 'none'; // 보관함 탭에서는 저장 버튼 숨김
+                loadBookmarks(); // 스크랩 리스트 조회
+            }
+        }
+
+        // 5. 알림 기존 설정 데이터 복원
+        async function loadExistingSettings() {
+            try {
+                const { data, error } = await supabaseClient
+                    .from('subscribers')
+                    .select('subscriptions')
+                    .eq('chat_id', userId.toString())
+                    .maybeSingle();
+
+                if (error) throw error;
+
+                if (data && data.subscriptions) {
+                    data.subscriptions.forEach(cat => {
+                        const checkbox = document.getElementById(cat);
+                        if (checkbox) checkbox.checked = true;
+                    });
+                }
+            } catch (err) {
+                console.error("이전 설정 로드 실패:", err);
+            }
+        }
+
+        // 6. 스크랩 목록 로딩 및 삭제 기능
+        async function loadBookmarks() {
+            const listContainer = document.getElementById("bookmark-list");
+            listContainer.innerHTML = '<div class="empty-text">스크랩 목록을 로드하는 중...</div>';
+            
+            try {
+                const { data, error } = await supabaseClient
+                    .from('bookmarks')
+                    .select('*')
+                    .eq('chat_id', userId.toString())
+                    .order('created_at', { ascending: false });
+
+                if (error) throw error;
+
+                if (!data || data.length === 0) {
+                    listContainer.innerHTML = '<div class="empty-text">보관된 중요 공지가 없습니다. 📌</div>';
+                    return;
+                }
+
+                listContainer.innerHTML = '';
+                data.forEach(item => {
+                    const card = document.createElement('div');
+                    card.className = 'card';
+                    card.innerHTML = `
+                        <div class="card-info">
+                            <h3>${item.title}</h3>
+                            <p>보관일: ${new Date(item.created_at).toLocaleDateString()}</p>
+                        </div>
+                        <div class="bookmark-actions">
+                            <button class="action-btn view" onclick="window.open('${item.link}', '_blank')">보기</button>
+                            <button class="action-btn delete" onclick="deleteBookmark(${item.id})">삭제</button>
+                        </div>
+                    `;
+                    listContainer.appendChild(card);
+                });
+            } catch (err) {
+                listContainer.innerHTML = `<div class="empty-text">로드 오류: ${err.message}</div>`;
+            }
+        }
+
+        // 스크랩 개별 항목 삭제
+        async function deleteBookmark(bookmarkId) {
+            try {
+                const { error } = await supabaseClient
+                    .from('bookmarks')
+                    .delete()
+                    .eq('id', bookmarkId);
+
+                if (error) throw error;
+                showToast("스크랩이 성공적으로 삭제되었습니다. 🗑️");
+                loadBookmarks();
+            } catch (err) {
+                tg.showAlert("삭제 실패: " + err.message);
+            }
+        }
+
+        // 7. 실시간 자동 스크랩 감지 및 데이터 삽입 (action=add)
+        async function checkAutoBookmark() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const action = urlParams.get('action');
+
+            if (action === 'add') {
+                const title = urlParams.get('title');
+                const link = urlParams.get('link');
+
+                if (title && link) {
+                    try {
+                        const { error } = await supabaseClient
+                            .from('bookmarks')
+                            .insert({
+                                chat_id: userId.toString(),
+                                title: title,
+                                link: link
+                            });
+
+                        if (error) throw error;
+
+                        // 스크랩 성공 알림 및 스크랩 탭으로 화면 전환
+                        showToast("스크랩 보관 완료! 📌");
+                        switchTab('bookmark-tab');
+                    } catch (err) {
+                        console.error("실시간 스크랩 실패:", err);
+                        
+                        // PostgreSQL Unique Violation (중복 저장) 에러 감지 및 예외 처리
+                        if (err.code === '23505' || (err.message && err.message.includes('duplicate'))) {
+                            showToast("이미 보관함에 있는 공지입니다! 📌");
+                            switchTab('bookmark-tab');
+                        } else {
+                            showToast("스크랩 저장 실패! RLS 설정을 확인하세요.");
+                        }
+                    }
+                }
+            } else {
+                // 일반 진입 시 기존 알림 설정 복원
+                loadExistingSettings();
+            }
+        }
+
+        // 실행 시작
+        checkAutoBookmark();
+
+        // 8. 알림 설정 저장 함수 (오직 Supabase DB 저장 및 웹앱 종료만 수행하는 정석적인 초경량화 구조)
+        async function saveSettings() {
+            const categories = ["general", "computer_dept", "computer_major", "sw_edu", "electronics", "mechanical", "economics"];
+            const selected = [];
+
+            categories.forEach(cat => {
+                if (document.getElementById(cat).checked) {
+                    selected.push(cat);
+                }
+            });
+
+            const payload = {
+                chat_id: userId.toString(),
+                name: userName,
+                subscriptions: selected,
+                updated_at: new Date().toISOString()
+            };
+
+            try {
+                const { error } = await supabaseClient
+                    .from('subscribers')
+                    .upsert(payload);
+
+                if (error) throw error;
+                tg.close(); // 저장 완료 후 즉시 텔레그램 창 닫기
+            } catch (err) {
+                tg.showAlert("설정 저장에 실패했습니다. 다시 시도해 주세요: " + err.message);
+            }
+        }
+    </script>
+</body>
+</html>
