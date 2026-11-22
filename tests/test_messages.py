@@ -1,6 +1,13 @@
 import unittest
 
-from messages import format_notice_message
+from messages import HELP_TEXT, format_notice_message
+
+
+class HelpTextTest(unittest.TestCase):
+    def test_lists_supported_commands_only(self):
+        self.assertIn("/start", HELP_TEXT)
+        self.assertIn("/help", HELP_TEXT)
+        self.assertNotIn("/menu", HELP_TEXT)
 
 
 class FormatNoticeMessageTest(unittest.TestCase):

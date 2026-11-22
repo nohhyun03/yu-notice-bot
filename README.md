@@ -44,7 +44,7 @@ python3 -m venv .venv
 ```
 
 ### 3. 상시 실행 서비스 등록 (systemd)
-봇은 항상 실행되며 `/start`, `/menu`에 즉시 응답하고, 공지 수집은 평일 9:00 ~ 17:50에 10분 간격으로 수행합니다. 미니앱 API는 `127.0.0.1:8080`에서 대기하고 nginx가 `/api/`를 전달합니다.
+봇은 항상 실행되며 `/start`, `/help`에 즉시 응답하고, 공지 수집은 평일 9:00 ~ 17:50에 10분 간격으로 수행합니다. 미니앱 API는 `127.0.0.1:8080`에서 대기하고 nginx가 `/api/`를 전달합니다.
 ```bash
 sudo cp deploy/yu-notice-bot.service /etc/systemd/system/
 sudo systemctl daemon-reload

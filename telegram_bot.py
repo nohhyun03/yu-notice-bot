@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 import api
 import db
 from bot_schedule import KST, next_run_time
-from messages import format_notice_message
+from messages import HELP_TEXT, format_notice_message
 
 # ==========================================
 # 0. 로깅 시스템 구축
@@ -193,9 +193,12 @@ def handle_update(token, update):
     text = msg.get("text", "").strip()
     logger.info(f"   ㄴ 감지된 메시지 (Chat ID: {chat_id}): '{text}'")
 
-    if text == "/start" or text == "/menu":
+    if text == "/start":
         logger.info(f"      👉 '{text}' 명령어 매칭 성공! 메뉴 버튼 카드 발송 요청")
         send_menu(token, chat_id)
+    elif text == "/help":
+        logger.info(f"      👉 '{text}' 명령어 매칭 성공! 도움말 발송 요청")
+        send_telegram_message(token, chat_id, HELP_TEXT)
 
 
 async def poll_loop(token):
