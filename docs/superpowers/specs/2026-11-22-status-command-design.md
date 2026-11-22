@@ -16,7 +16,7 @@ The admin (the user, `ADMIN_CHAT_ID`) wants to check from Telegram, without logg
 ## Non-goals
 
 - No alert when the server dies (that needs a watcher outside the server; not requested).
-- `/status` is not added to the public command list or to `/help`.
+- `/status` is not added to the public command list; `/help` shows it only to the admin, under "🔧 관리자 기능" (user decision, 2026-11-22).
 
 ## Approaches
 

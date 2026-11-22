@@ -2,7 +2,7 @@ import unittest
 from datetime import datetime
 
 from bot_schedule import KST
-from messages import HELP_TEXT, format_notice_message, format_status
+from messages import ADMIN_HELP_TEXT, HELP_TEXT, format_notice_message, format_status
 
 COUNTS = {"subscribers": 3, "bookmarks": 3}
 
@@ -55,6 +55,10 @@ class HelpTextTest(unittest.TestCase):
         self.assertIn("/start", HELP_TEXT)
         self.assertIn("/help", HELP_TEXT)
         self.assertNotIn("/menu", HELP_TEXT)
+
+    def test_status_only_in_admin_section(self):
+        self.assertNotIn("/status", HELP_TEXT)
+        self.assertIn("/status", ADMIN_HELP_TEXT)
 
 
 class FormatNoticeMessageTest(unittest.TestCase):

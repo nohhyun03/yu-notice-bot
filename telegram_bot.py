@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 import api
 import db
 from bot_schedule import KST, next_run_time
-from messages import HELP_TEXT, UNKNOWN_REPLY, format_notice_message, format_status
+from messages import ADMIN_HELP_TEXT, HELP_TEXT, UNKNOWN_REPLY, format_notice_message, format_status
 
 # ==========================================
 # 0. 로깅 시스템 구축
@@ -200,7 +200,8 @@ def handle_update(token, update):
         send_menu(token, chat_id)
     elif text == "/help":
         logger.info(f"      👉 '{text}' 명령어 매칭 성공! 도움말 발송 요청")
-        send_telegram_message(token, chat_id, HELP_TEXT)
+        is_admin = str(chat_id) == str(ADMIN_CHAT_ID)
+        send_telegram_message(token, chat_id, HELP_TEXT + (ADMIN_HELP_TEXT if is_admin else ""))
     elif text == "/status" and str(chat_id) == str(ADMIN_CHAT_ID):
         logger.info("      👉 관리자 상태 확인 요청")
         send_telegram_message(token, chat_id, build_status())

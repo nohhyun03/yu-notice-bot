@@ -11,7 +11,10 @@ HELP_TEXT = (
 )
 
 
-UNKNOWN_REPLY = "지원하지 않는 명령어입니다. /help 를 보내 보세요."
+# Appended to /help only for the admin; others never see admin commands.
+ADMIN_HELP_TEXT = "\n\n<b>🔧 관리자 기능</b>\n/status - 봇·서버 상태 확인"
+
+UNKNOWN_REPLY ="지원하지 않는 명령어입니다. /help 를 보내 보세요."
 
 STALE_AFTER =timedelta(minutes=20)  # two missed 10-minute crawl slots
 
