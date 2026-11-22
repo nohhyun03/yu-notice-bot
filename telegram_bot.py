@@ -3,6 +3,7 @@ import html
 import json
 import requests
 import os
+import shutil
 import signal
 import time
 import sys
@@ -17,7 +18,7 @@ from dotenv import load_dotenv
 import api
 import db
 from bot_schedule import KST, next_run_time
-from messages import HELP_TEXT, format_notice_message
+from messages import HELP_TEXT, UNKNOWN_REPLY, format_notice_message, format_status
 
 # ==========================================
 # 0. 로깅 시스템 구축
@@ -190,15 +191,21 @@ def handle_update(token, update):
         return
     msg = update["message"]
     chat_id = msg["chat"]["id"]
-    text = msg.get("text", "").strip()
+    text = (msg.get("text") or "").strip()  # stickers/photos have no text
     logger.info(f"   ㄴ 감지된 메시지 (Chat ID: {chat_id}): '{text}'")
 
+    # Every message gets an answer, so silence from the bot always means something is wrong.
     if text == "/start":
         logger.info(f"      👉 '{text}' 명령어 매칭 성공! 메뉴 버튼 카드 발송 요청")
         send_menu(token, chat_id)
     elif text == "/help":
         logger.info(f"      👉 '{text}' 명령어 매칭 성공! 도움말 발송 요청")
         send_telegram_message(token, chat_id, HELP_TEXT)
+    elif text == "/status" and str(chat_id) == str(ADMIN_CHAT_ID):
+        logger.info("      👉 관리자 상태 확인 요청")
+        send_telegram_message(token, chat_id, build_status())
+    else:
+        send_telegram_message(token, chat_id, UNKNOWN_REPLY)
 
 
 async def poll_loop(token):
@@ -235,6 +242,9 @@ async def poll_loop(token):
 # ==========================================
 # 장애 경보를 이미 보낸 카테고리 (복구 시 제거)
 failing_categories = set()
+
+# /status 용 실행 상태 (재시작하면 초기화)
+bot_state = {"started_at": None, "last_crawl": None}
 
 def fetch_notices(category_key):
     info = CATEGORIES.get(category_key)
@@ -322,7 +332,7 @@ def crawl_and_send():
     subscribers = load_subscribers_from_db()
     if not subscribers:
         logger.info("⚠️ 등록된 구독자가 데이터베이스에 없습니다. 이번 수집을 건너뜁니다.")
-        return
+        return 0
         
     active_categories = set()
     for sub in subscribers:
@@ -331,7 +341,7 @@ def crawl_and_send():
     if not active_categories:
         logger.info("💤 활성화된 구독 카테고리가 없습니다.")
         logger.info("✅ 이번 수집을 건너뜁니다.")
-        return
+        return 0
         
     last_notices = load_last_notices()
     new_notices_by_category = {}
@@ -413,6 +423,7 @@ def crawl_and_send():
     save_last_notices(updated_last_notices)
     logger.info("📝 알림 완료 기록 갱신 완료.")
     logger.info("✅ 이번 수집/발송 작업을 완료했습니다.")
+    return sum(len(posts) for posts in new_notices_by_category.values())
 
 
 async def schedule_loop():
@@ -422,10 +433,41 @@ async def schedule_loop():
         logger.info(f"⏰ 다음 수집 예정: {target:%Y-%m-%d %H:%M}")
         await asyncio.sleep((target - now).total_seconds())
         try:
-            await asyncio.to_thread(crawl_and_send)
+            new_count = await asyncio.to_thread(crawl_and_send)
+            bot_state["last_crawl"] = {"time": datetime.now(KST), "ok": True, "new": new_count, "error": None}
         except Exception as e:
             # One failed run must not stop future runs.
             logger.error(f"🚨 수집 실행 중 예외: {e}")
+            bot_state["last_crawl"] = {"time": datetime.now(KST), "ok": False, "new": 0, "error": str(e)}
+
+
+def _size(num_bytes):
+    return f"{num_bytes / 1024**3:.1f}G" if num_bytes >= 1024**3 else f"{num_bytes // 1024**2}MB"
+
+
+def _mem_available():
+    try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemAvailable:"):
+                    return _size(int(line.split()[1]) * 1024)
+    except OSError:
+        pass
+    return "?"
+
+
+def build_status():
+    now = datetime.now(KST)
+    return format_status(
+        now,
+        bot_state["started_at"] or now,
+        bot_state["last_crawl"],
+        next_run_time(now),
+        [CATEGORIES[c]["name"] for c in sorted(failing_categories)],
+        db.count_rows(),
+        _size(shutil.disk_usage("/").free),
+        _mem_available(),
+    )
 
 
 async def run():
@@ -455,6 +497,7 @@ def main():
         sys.exit(1)
 
     db.init_db(DB_PATH)
+    bot_state["started_at"] = datetime.now(KST)
     asyncio.run(run())
 
 if __name__ == "__main__":
