@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>영대소식 알림 및 스크랩</title>
+    <!-- 구글 폰트: Outfit 적용 -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <!-- 텔레그램 공식 WebApp SDK 임포트 -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    
+    <style>
+        :root {
+            --bg-color: #121214;
+            --card-color: #1e1e24;
+            --text-primary: #ffffff;
+            --text-secondary: #8e8e93;
+            --accent-color: #007aff;
+            --neon-blue: #00f0ff;
+            --neon-pink: #ff2d55;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Outfit', -apple-system, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            padding: 20px 20px 100px 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* 탭 메뉴 스타일 */
+        .tab-container {
+            width: 100%;
+            max-width: 480px;
+            display: flex;
+            background-color: var(--card-color);
+            border-radius: 12px;
+            padding: 4px;
+            margin-bottom: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .tab-btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            background: none;
+            color: var(--text-secondary);
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            text-align: center;
+        }
+
+        .tab-btn.active {
+            background-color: rgba(255, 255, 255, 0.05);
+            color: var(--neon-blue);
+            box-shadow: 0px 4px 10px rgba(0, 240, 255, 0.1);
+        }
+
+        /* 콘텐츠 영역 */
+        .tab-content {
+            width: 100%;
+            max-width: 480px;
+            display: none;
+            animation: fadeIn 0.4s ease;
+        }
+
+        .tab-content.active {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .header {
+            width: 100%;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #00f0ff, #007aff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 6px;
+        }
+
+        .header p {
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        /* 카드 UI */
+        .card {
+            background-color: var(--card-color);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            padding: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+
+        .card:active {
+            transform: scale(0.98);
+        }
+
+        .card-info {
+            flex: 1;
+            padding-right: 12px;
+        }
+
+        .card-info h3 {
+            font-size: 15px;
+            font-weight: 600;
+            margin-bottom: 4px;
+            line-height: 1.4;
+        }
+
+        .card-info p {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        /* iOS 스타일 토글 스위치 */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 51px;
+            height: 31px;
+            flex-shrink: 0;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #3a3a3c;
+            transition: .3s;
+            border-radius: 34px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 27px;
+            width: 27px;
+            left: 2px;
+            bottom: 2px;
+            background-color: white;
+            transition: .3s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider {
+            background: linear-gradient(135deg, var(--neon-blue), var(--accent-color));
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(20px);
+        }
+
+        /* 스크랩 보관함 전용 액션 버튼들 */
+        .bookmark-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+
+        .action-btn {
+            background: none;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .action-btn.view {
+            background-color: rgba(0, 240, 255, 0.1);
+            color: var(--neon-blue);
+            border: 1px solid rgba(0, 240, 255, 0.2);
+        }
+
+        .action-btn.view:active {
+            background-color: rgba(0, 240, 255, 0.2);
+        }
+
+        .action-btn.delete {
+            background-color: rgba(255, 45, 85, 0.1);
+            color: var(--neon-pink);
+            border: 1px solid rgba(255, 45, 85, 0.2);
+        }
+
+        .action-btn.delete:active {
+            background-color: rgba(255, 45, 85, 0.2);
+        }
+
+        /* 하단 저장 버튼 */
+        .footer-btn-container {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 20px;
+            background: linear-gradient(to top, var(--bg-color) 80%, transparent);
+            display: flex;
+            justify-content: center;
+            z-index: 10;
+        }
+
+        .save-btn {
+            width: 100%;
+            max-width: 440px;
+            padding: 16px;
+            border: none;
+            border-radius: 14px;
+            background: linear-gradient(135deg, var(--neon-blue), var(--accent-color));
+            color: white;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            box-shadow: 0px 8px 24px rgba(0, 240, 255, 0.2);
+            transition: all 0.3s ease;
+        }
+
+        .save-btn:active {
+            transform: scale(0.97);
+        }
+
+        /* 토스트 알림창 스타일 */
+        .toast {
+            position: fixed;
+            bottom: 90px;
+            left: 50%;
+            transform: translateX(-50%) translateY(20px);
+            background-color: rgba(30, 30, 36, 0.95);
+            border: 1px solid var(--neon-blue);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 30px;
+            font-size: 14px;
+            font-weight: 600;
+            box-shadow: 0px 8px 24px rgba(0, 240, 255, 0.2);
+            opacity: 0;
+            transition: all 0.3s ease;
+            z-index: 100;
+            pointer-events: none;
+            white-space: nowrap;
+        }
+
+        .toast.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
+
+        .empty-text {
+            text-align: center;
+            color: var(--text-secondary);
+            padding: 40px 0;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 상단 탭 메뉴 바 -->
+    <div class="tab-container" id="tabs">
+        <button class="tab-btn active" data-tab="setting-tab">🔔 알림 설정</button>
+        <button class="tab-btn" data-tab="bookmark-tab">📌 스크랩 보관함</button>
+    </div>
+
+    <!-- 탭 1: 알림 설정 화면 -->
+    <div id="setting-tab" class="tab-content active">
+        <div class="header">
+            <h1>알림 구독 설정</h1>
+            <p>받아보고 싶은 공지사항을 선택하세요.</p>
+        </div>
+        <div id="category-list" style="display: flex; flex-direction: column; gap: 12px; width: 100%;">
+            <div class="empty-text">불러오는 중...</div>
+        </div>
+    </div>
+
+    <!-- 탭 2: 스크랩 보관함 화면 -->
+    <div id="bookmark-tab" class="tab-content">
+        <div class="header">
+            <h1>스크랩 보관함</h1>
+            <p>내가 중요하다고 체크해 둔 공지 모음집입니다.</p>
+        </div>
+        <div id="bookmark-list" style="display: flex; flex-direction: column; gap: 12px; width: 100%;"></div>
+    </div>
+
+    <!-- 하단 고정 저장 버튼 (알림 설정 탭에서만 활성화) -->
+    <div class="footer-btn-container" id="footer-container">
+        <button class="save-btn" id="save-btn">설정 저장하기</button>
+    </div>
+
+    <div id="toast" class="toast"></div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+
+        // 카드 설명 문구 (없는 카테고리는 이름만 표시)
+        const DESCRIPTIONS = {
+            general: ["일반 공지", "영남대 영대소식(학교공지)"],
+            computer_dept: ["컴퓨터학부", "컴퓨터학부 전체 공지"],
+            computer_major: ["컴퓨터공학전공", "컴퓨터공학전공 맞춤 공지"],
+            sw_edu: ["SW중심대학", "SW중심대학 사업단 공지"],
+            electronics: ["전자공학과", "전자공학과 최신 공지"],
+            mechanical: ["기계공학과", "기계공학과 최신 공지"],
+            economics: ["경제금융학과", "경제금융학과 최신 공지"],
+        };
+
+        function el(tag, className, text) {
+            const node = document.createElement(tag);
+            if (className) node.className = className;
+            if (text !== undefined) node.textContent = text;
+            return node;
+        }
+
+        function showToast(message) {
+            const toast = document.getElementById("toast");
+            toast.textContent = message;
+            toast.classList.add("show");
+            setTimeout(() => toast.classList.remove("show"), 2500);
+        }
+
+        // 모든 API 요청에 텔레그램 서명 데이터를 붙임 (서버가 검증)
+        async function api(path, options = {}) {
+            const headers = { "X-Telegram-Init-Data": tg.initData, ...(options.headers || {}) };
+            const resp = await fetch(path, { ...options, headers });
+            if (!resp.ok) throw new Error("HTTP " + resp.status);
+            return resp.status === 204 ? null : resp.json();
+        }
+
+        function switchTab(tabId) {
+            document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b.dataset.tab === tabId));
+            document.querySelectorAll(".tab-content").forEach(c => c.classList.toggle("active", c.id === tabId));
+            document.getElementById("footer-container").style.display = tabId === "setting-tab" ? "flex" : "none";
+            if (tabId === "bookmark-tab") loadBookmarks();
+        }
+
+        async function loadSettings() {
+            const list = document.getElementById("category-list");
+            try {
+                const [categories, mine] = await Promise.all([api("/api/categories"), api("/api/subscriptions")]);
+                list.replaceChildren();
+                categories.forEach(cat => {
+                    const [title, desc] = DESCRIPTIONS[cat.key] || [cat.name, cat.name];
+                    const card = el("div", "card");
+                    const info = el("div", "card-info");
+                    info.append(el("h3", null, title), el("p", null, desc));
+                    const label = el("label", "switch");
+                    const input = el("input");
+                    input.type = "checkbox";
+                    input.dataset.key = cat.key;
+                    input.checked = mine.subscriptions.includes(cat.key);
+                    label.append(input, el("span", "slider"));
+                    card.append(info, label);
+                    list.append(card);
+                });
+            } catch (err) {
+                list.replaceChildren(el("div", "empty-text", "설정을 불러오지 못했습니다: " + err.message));
+            }
+        }
+
+        async function saveSettings() {
+            const selected = [...document.querySelectorAll("#category-list input:checked")].map(i => i.dataset.key);
+            try {
+                await api("/api/subscriptions", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ subscriptions: selected }),
+                });
+                tg.close();
+            } catch (err) {
+                tg.showAlert("설정 저장에 실패했습니다. 다시 시도해 주세요: " + err.message);
+            }
+        }
+
+        async function loadBookmarks() {
+            const list = document.getElementById("bookmark-list");
+            list.replaceChildren(el("div", "empty-text", "스크랩 목록을 불러오는 중..."));
+            try {
+                const items = await api("/api/bookmarks");
+                if (items.length === 0) {
+                    list.replaceChildren(el("div", "empty-text", "보관된 중요 공지가 없습니다. 📌"));
+                    return;
+                }
+                list.replaceChildren();
+                items.forEach(item => {
+                    const card = el("div", "card");
+                    const info = el("div", "card-info");
+                    info.append(el("h3", null, item.title), el("p", null, "보관일: " + new Date(item.created_at).toLocaleDateString()));
+                    const actions = el("div", "bookmark-actions");
+                    const view = el("button", "action-btn view", "보기");
+                    view.addEventListener("click", () => {
+                        if (/^https?:\/\//.test(item.link)) tg.openLink(item.link);
+                    });
+                    const del = el("button", "action-btn delete", "삭제");
+                    del.addEventListener("click", () => deleteBookmark(item.id));
+                    actions.append(view, del);
+                    card.append(info, actions);
+                    list.append(card);
+                });
+            } catch (err) {
+                list.replaceChildren(el("div", "empty-text", "로드 오류: " + err.message));
+            }
+        }
+
+        async function deleteBookmark(id) {
+            try {
+                await api("/api/bookmarks/" + id, { method: "DELETE" });
+                showToast("스크랩이 삭제되었습니다. 🗑️");
+                loadBookmarks();
+            } catch (err) {
+                tg.showAlert("삭제 실패: " + err.message);
+            }
+        }
+
+        if (!tg.initData) {
+            // 텔레그램 밖에서 열면 사용자를 확인할 수 없으므로 아무 데이터도 보여주지 않음
+            document.body.replaceChildren(el("div", "empty-text", "텔레그램 앱에서 열어 주세요"));
+        } else {
+            tg.expand();
+            document.querySelectorAll(".tab-btn").forEach(b => b.addEventListener("click", () => switchTab(b.dataset.tab)));
+            document.getElementById("save-btn").addEventListener("click", saveSettings);
+            loadSettings();
+        }
+    </script>
+</body>
+</html>

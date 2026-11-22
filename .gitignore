@@ -4,3 +4,5 @@ bot_run.log
 *.pyc
 __pycache__/
 .venv/
+data.db*
+backups/

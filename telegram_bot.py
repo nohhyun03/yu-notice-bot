@@ -9,10 +9,12 @@ import logging
 import urllib.parse
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
+from aiohttp import web
 from bs4 import BeautifulSoup
-from supabase import create_client, Client
 from dotenv import load_dotenv
 
+import api
+import db
 from bot_schedule import KST, next_run_time
 
 # ==========================================
@@ -51,13 +53,21 @@ LAST_NOTICES_FILE = "last_notices.json"
 # 관리자 Chat ID
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 
-# 미니 앱 URL (사용자의 GitHub Pages 주소)
-WEBAPP_URL = os.getenv("WEBAPP_URL", "https://nohhyun03.github.io/yu-notice-bot/")
+# 미니 앱 URL
+WEBAPP_URL = os.getenv("WEBAPP_URL", "https://bot.nohhyun.me/")
 
-# Supabase 클라우드 DB 연동 설정
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+# 구독/스크랩 데이터 SQLite 파일
+DB_PATH = os.getenv("DB_PATH", "data.db")
+
+# 미니 앱 API (nginx가 /api/ 를 여기로 전달)
+API_HOST = "127.0.0.1"
+API_PORT = 8080
+
+BOOKMARK_ANSWERS = {
+    "added": "📌 스크랩 완료",
+    "exists": "이미 보관함에 있는 공지입니다",
+    "missing": "스크랩할 수 없는 공지입니다",
+}
 
 CATEGORIES = {
     "general": {
@@ -102,10 +112,9 @@ CATEGORIES = {
 # ==========================================
 def load_subscribers_from_db():
     try:
-        response = supabase.table("subscribers").select("*").execute()
-        return response.data if response.data else []
+        return db.list_subscribers()
     except Exception as e:
-        logger.error(f"⚠️ Supabase 데이터 로드 실패: {e}")
+        logger.error(f"⚠️ 구독자 데이터 로드 실패: {e}")
         return []
 
 def load_last_notices():
@@ -155,7 +164,26 @@ def send_menu(token, chat_id):
 # ==========================================
 # 4. 실시간 대화식 명령어 처리
 # ==========================================
+def handle_bookmark_callback(token, callback_query):
+    # The user id comes from Telegram's update, so a scrap can only be saved for the person who tapped.
+    chat_id = str(callback_query["from"]["id"])
+    notice_id = db.parse_bookmark_data(callback_query.get("data", ""))
+    result = "missing" if notice_id is None else db.bookmark_notice(chat_id, notice_id)
+    logger.info(f"   ㄴ 스크랩 버튼 (Chat ID: {chat_id}, notice: {notice_id}): {result}")
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{token}/answerCallbackQuery",
+            json={"callback_query_id": callback_query["id"], "text": BOOKMARK_ANSWERS[result]},
+            timeout=10,
+        )
+    except Exception as e:
+        logger.error(f"⚠️ 스크랩 응답 오류 (Chat ID: {chat_id}): {e}")
+
+
 def handle_update(token, update):
+    if "callback_query" in update:
+        handle_bookmark_callback(token, update["callback_query"])
+        return
     if "message" not in update:
         return
     msg = update["message"]
@@ -181,7 +209,9 @@ async def poll_loop(token):
         try:
             # Long polling: Telegram holds the request up to 50s and returns as soon as a message arrives.
             response = await asyncio.to_thread(
-                requests.get, url, params={"offset": offset, "timeout": 50}, timeout=60
+                requests.get, url,
+                params={"offset": offset, "timeout": 50, "allowed_updates": json.dumps(["message", "callback_query"])},
+                timeout=60,
             )
             if response.status_code != 200:
                 logger.error(f"⚠️ getUpdates HTTP {response.status_code}: {response.text[:200]}")
@@ -283,7 +313,7 @@ def send_telegram_message(token, chat_id, text, reply_markup=None):
 # 6. 메인 통합 실행
 # ==========================================
 def crawl_and_send():
-    # 2. Supabase DB에서 최신 가입자/구독 정보 일괄 획득
+    # 2. DB에서 최신 가입자/구독 정보 일괄 획득
     subscribers = load_subscribers_from_db()
     if not subscribers:
         logger.info("⚠️ 등록된 구독자가 데이터베이스에 없습니다. 이번 수집을 건너뜁니다.")
@@ -338,7 +368,12 @@ def crawl_and_send():
         logger.info("💤 신규 공지사항이 발견되지 않았습니다.")
     else:
         logger.info("🎯 새로운 공지가 수집되어 대상자별 개별 메시지 전송을 시작합니다...")
-        
+
+        # Store each new notice once so its scrap button carries only a short id.
+        for category, posts in new_notices_by_category.items():
+            for post in posts:
+                post["notice_id"] = db.remember_notice(category, post["id"], post["title"], post["link"])
+
         for sub in subscribers:
             chat_id = sub["chat_id"]
             name = sub["name"]
@@ -354,13 +389,9 @@ def crawl_and_send():
                             f"👉 <a href='{post['link']}'>공지 본문 바로가기</a>"
                         )
                         
-                        encoded_title = urllib.parse.quote(post['title'])
-                        encoded_link = urllib.parse.quote(post['link'])
-                        bookmark_url = f"{WEBAPP_URL}?action=add&title={encoded_title}&link={encoded_link}"
-                        
                         keyboard = {
                             "inline_keyboard": [
-                                [{"text": "📌 이 공지 스크랩하기", "web_app": {"url": bookmark_url}}]
+                                [{"text": "📌 이 공지 스크랩하기", "callback_data": f"bm:{post['notice_id']}"}]
                             ]
                         }
                         
@@ -401,21 +432,28 @@ async def run():
     # a worker thread finishes and saves last_notices.json (asyncio.run waits for worker threads on exit).
     if sys.platform != "win32":
         asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, asyncio.current_task().cancel)
+    runner = web.AppRunner(api.make_app(TELEGRAM_TOKEN, CATEGORIES))
+    await runner.setup()
+    await web.TCPSite(runner, API_HOST, API_PORT).start()
+    logger.info(f"🌐 미니 앱 API 대기 중: http://{API_HOST}:{API_PORT}/api/")
     try:
         await asyncio.gather(poll_loop(TELEGRAM_TOKEN), schedule_loop())
     except asyncio.CancelledError:
         logger.info("🛑 종료 신호 수신. 진행 중인 작업을 마치고 종료합니다.")
+    finally:
+        await runner.cleanup()
 
 
 def main():
-    logger.info("🤖 영남대 공지봇 상시 실행 시작 (Supabase 연동)...")
+    logger.info("🤖 영남대 공지봇 상시 실행 시작 (SQLite)...")
 
     # ⚠️ [보안/안전 가드] 필수 환경변수 누락 시 무한 예외 통신 방지 및 즉각 자가 안전 종료
-    if not TELEGRAM_TOKEN or not SUPABASE_URL or not SUPABASE_KEY:
-        logger.error("🚨 [환경변수 에러] 필수 설정값(TELEGRAM_TOKEN, SUPABASE_URL, SUPABASE_KEY) 중 누락된 값이 있습니다.")
+    if not TELEGRAM_TOKEN:
+        logger.error("🚨 [환경변수 에러] 필수 설정값 TELEGRAM_TOKEN 이 없습니다.")
         logger.error("   ㄴ 서버/로컬 폴더 내의 .env 파일 설정 상태를 다시 한번 확인해 주세요.")
         sys.exit(1)
 
+    db.init_db(DB_PATH)
     asyncio.run(run())
 
 if __name__ == "__main__":
