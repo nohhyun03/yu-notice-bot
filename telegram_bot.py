@@ -1,4 +1,5 @@
 import asyncio
+import html
 import json
 import requests
 import os
@@ -16,6 +17,7 @@ from dotenv import load_dotenv
 import api
 import db
 from bot_schedule import KST, next_run_time
+from messages import format_notice_message
 
 # ==========================================
 # 0. 로깅 시스템 구축
@@ -281,7 +283,7 @@ def fetch_notices(category_key):
                 f"<b>🚨 [영남대 공지봇 장애 경보]</b>\n\n"
                 f"공지사항을 긁어오는 중 에러가 발생했습니다.\n\n"
                 f"📌 <b>장애 대상:</b> {info['name']}\n"
-                f"❌ <b>에러 로그:</b> {e}"
+                f"❌ <b>에러 로그:</b> {html.escape(str(e))}"
             )
             send_telegram_message(TELEGRAM_TOKEN, ADMIN_CHAT_ID, telegram_alert)
         return []
@@ -383,11 +385,7 @@ def crawl_and_send():
                 if category in new_notices_by_category:
                     for post in new_notices_by_category[category]:
                         category_name = CATEGORIES[category]["name"]
-                        msg_text = (
-                            f"<b>🚨 [{category_name} 새 공지!]</b>\n\n"
-                            f"{post['title']}\n\n"
-                            f"👉 <a href='{post['link']}'>공지 본문 바로가기</a>"
-                        )
+                        msg_text = format_notice_message(category_name, post)
                         
                         keyboard = {
                             "inline_keyboard": [
