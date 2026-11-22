@@ -21,7 +21,7 @@
 * `auth.py`: 텔레그램 `initData` 서명 검증
 * `api.py`: 미니앱용 API (`/api/...`)
 * `web/index.html`: 텔레그램 미니앱 프론트엔드
-* `scripts/`: Supabase 데이터 이전(1회), DB 백업
+* `scripts/backup_db.py`: SQLite DB 백업
 * `deploy/`: systemd 서비스, nginx 설정, 백업 cron, 옛 GitHub Pages 안내 페이지
 * `last_notices.json`: 중복 수집 필터링용 직전 공지 ID 캐시
 * `.env`: 토큰 등 환경변수 (git 제외)
