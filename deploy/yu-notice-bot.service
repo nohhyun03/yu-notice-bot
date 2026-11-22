@@ -1,0 +1,15 @@
+[Unit]
+Description=yu-notice-bot (Telegram notice bot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=yubot
+WorkingDirectory=/srv/yu-notice-bot
+ExecStart=/srv/yu-notice-bot/.venv/bin/python telegram_bot.py
+Restart=always
+RestartSec=5
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target

@@ -1,14 +1,19 @@
+import asyncio
 import json
 import requests
 import os
+import signal
 import time
 import sys
 import logging
 import urllib.parse
+from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from bs4 import BeautifulSoup
 from supabase import create_client, Client
 from dotenv import load_dotenv
+
+from bot_schedule import KST, next_run_time
 
 # ==========================================
 # 0. 로깅 시스템 구축
@@ -150,49 +155,52 @@ def send_menu(token, chat_id):
 # ==========================================
 # 4. 실시간 대화식 명령어 처리
 # ==========================================
-def process_pending_commands(token):
+def handle_update(token, update):
+    if "message" not in update:
+        return
+    msg = update["message"]
+    chat_id = msg["chat"]["id"]
+    text = msg.get("text", "").strip()
+    logger.info(f"   ㄴ 감지된 메시지 (Chat ID: {chat_id}): '{text}'")
+
+    if text == "/start" or text == "/menu":
+        logger.info(f"      👉 '{text}' 명령어 매칭 성공! 메뉴 버튼 카드 발송 요청")
+        send_menu(token, chat_id)
+
+
+async def poll_loop(token):
     # ⚠️ 혹시 숨어있을 웹훅 세션을 강제 지우기하여 getUpdates 수신 방해 차단
     try:
-        requests.get(f"https://api.telegram.org/bot{token}/deleteWebhook", timeout=5)
+        await asyncio.to_thread(requests.get, f"https://api.telegram.org/bot{token}/deleteWebhook", timeout=5)
     except Exception:
         pass
 
     url = f"https://api.telegram.org/bot{token}/getUpdates"
-    try:
-        response = requests.get(url, timeout=10)
-        if response.status_code != 200:
-            logger.info(f"⚠️ 대화 내역 수집 실패 (HTTP 상태코드: {response.status_code})")
-            return
-            
-        updates = response.json().get("result", [])
-        logger.info(f"🔍 텔레그램 대기 중인 명령어 개수: {len(updates)}개")
-        if not updates:
-            return
-            
-        last_update_id = 0
-        for update in updates:
-            update_id = update["update_id"]
-            last_update_id = max(last_update_id, update_id)
-            
-            if "message" in update:
-                msg = update["message"]
-                chat_id = msg["chat"]["id"]
-                text = msg.get("text", "").strip()
-                logger.info(f"   ㄴ 감지된 메시지 (Chat ID: {chat_id}): '{text}'")
-                
-                if text == "/start" or text == "/menu":
-                    logger.info(f"      👉 '{text}' 명령어 매칭 성공! 메뉴 버튼 카드 발송 요청")
-                    send_menu(token, chat_id)
-                    
-        if last_update_id > 0:
-            requests.get(f"{url}?offset={last_update_id + 1}", timeout=10)
-            
-    except Exception as e:
-        logger.error(f"⚠️ 대화 처리기 예외 발생: {e}")
+    offset = None
+    while True:
+        try:
+            # Long polling: Telegram holds the request up to 50s and returns as soon as a message arrives.
+            response = await asyncio.to_thread(
+                requests.get, url, params={"offset": offset, "timeout": 50}, timeout=60
+            )
+            if response.status_code != 200:
+                logger.error(f"⚠️ getUpdates HTTP {response.status_code}: {response.text[:200]}")
+                await asyncio.sleep(5)
+                continue
+
+            for update in response.json().get("result", []):
+                offset = update["update_id"] + 1
+                await asyncio.to_thread(handle_update, token, update)
+        except Exception as e:
+            logger.error(f"⚠️ 대화 처리기 예외 발생: {e}")
+            await asyncio.sleep(5)
 
 # ==========================================
 # 5. 크롤링 및 발송 코어 함수
 # ==========================================
+# 장애 경보를 이미 보낸 카테고리 (복구 시 제거)
+failing_categories = set()
+
 def fetch_notices(category_key):
     info = CATEGORIES.get(category_key)
     if not info:
@@ -225,18 +233,27 @@ def fetch_notices(category_key):
                 notice_id = article_no if article_no else link
                 
                 notices.append({"id": notice_id, "title": title, "link": link})
+        if category_key in failing_categories:
+            failing_categories.discard(category_key)
+            send_telegram_message(
+                TELEGRAM_TOKEN, ADMIN_CHAT_ID,
+                f"<b>✅ [영남대 공지봇 복구]</b>\n\n📌 <b>복구 대상:</b> {info['name']}"
+            )
         return notices
     except Exception as e:
         err_msg = f"⚠️ [{info['name']}] 크롤링 실패: {e}"
         logger.error(err_msg)
-        
-        telegram_alert = (
-            f"<b>🚨 [영남대 공지봇 장애 경보]</b>\n\n"
-            f"공지사항을 긁어오는 중 에러가 발생했습니다.\n\n"
-            f"📌 <b>장애 대상:</b> {info['name']}\n"
-            f"❌ <b>에러 로그:</b> {e}"
-        )
-        send_telegram_message(TELEGRAM_TOKEN, ADMIN_CHAT_ID, telegram_alert)
+
+        # Alert once per outage; the bot now runs continuously, so repeats would arrive every 10 minutes.
+        if category_key not in failing_categories:
+            failing_categories.add(category_key)
+            telegram_alert = (
+                f"<b>🚨 [영남대 공지봇 장애 경보]</b>\n\n"
+                f"공지사항을 긁어오는 중 에러가 발생했습니다.\n\n"
+                f"📌 <b>장애 대상:</b> {info['name']}\n"
+                f"❌ <b>에러 로그:</b> {e}"
+            )
+            send_telegram_message(TELEGRAM_TOKEN, ADMIN_CHAT_ID, telegram_alert)
         return []
 
 def send_telegram_message(token, chat_id, text, reply_markup=None):
@@ -265,22 +282,11 @@ def send_telegram_message(token, chat_id, text, reply_markup=None):
 # ==========================================
 # 6. 메인 통합 실행
 # ==========================================
-def main():
-    logger.info("🤖 영남대 다중 공지사항 배치 프로그램 작동 시작 (Supabase 연동)...")
-    
-    # ⚠️ [보안/안전 가드] 필수 환경변수 누락 시 무한 예외 통신 방지 및 즉각 자가 안전 종료
-    if not TELEGRAM_TOKEN or not SUPABASE_URL or not SUPABASE_KEY:
-        logger.error("🚨 [환경변수 에러] 필수 설정값(TELEGRAM_TOKEN, SUPABASE_URL, SUPABASE_KEY) 중 누락된 값이 있습니다.")
-        logger.error("   ㄴ 서버/로컬 폴더 내의 .env 파일 설정 상태를 다시 한번 확인해 주세요.")
-        sys.exit(1)
-        
-    # 1. 사용자가 보낸 명령어 처리
-    process_pending_commands(TELEGRAM_TOKEN)
-    
+def crawl_and_send():
     # 2. Supabase DB에서 최신 가입자/구독 정보 일괄 획득
     subscribers = load_subscribers_from_db()
     if not subscribers:
-        logger.info("⚠️ 등록된 구독자가 데이터베이스에 없습니다. 크롤링 단계를 건너뛰고 종료합니다.")
+        logger.info("⚠️ 등록된 구독자가 데이터베이스에 없습니다. 이번 수집을 건너뜁니다.")
         return
         
     active_categories = set()
@@ -289,7 +295,7 @@ def main():
         
     if not active_categories:
         logger.info("💤 활성화된 구독 카테고리가 없습니다.")
-        logger.info("✅ 배치 처리가 완료되어 프로그램을 안전하게 종료합니다.")
+        logger.info("✅ 이번 수집을 건너뜁니다.")
         return
         
     last_notices = load_last_notices()
@@ -374,7 +380,43 @@ def main():
             
     save_last_notices(updated_last_notices)
     logger.info("📝 알림 완료 기록 갱신 완료.")
-    logger.info("✅ 모든 배치 작업이 완료되어 프로그램을 안전하게 종료합니다.")
+    logger.info("✅ 이번 수집/발송 작업을 완료했습니다.")
+
+
+async def schedule_loop():
+    while True:
+        now = datetime.now(KST)
+        target = next_run_time(now)
+        logger.info(f"⏰ 다음 수집 예정: {target:%Y-%m-%d %H:%M}")
+        await asyncio.sleep((target - now).total_seconds())
+        try:
+            await asyncio.to_thread(crawl_and_send)
+        except Exception as e:
+            # One failed run must not stop future runs.
+            logger.error(f"🚨 수집 실행 중 예외: {e}")
+
+
+async def run():
+    # systemd stops the service with SIGTERM. Cancel the loops instead of dying at once, so a crawl running in
+    # a worker thread finishes and saves last_notices.json (asyncio.run waits for worker threads on exit).
+    if sys.platform != "win32":
+        asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, asyncio.current_task().cancel)
+    try:
+        await asyncio.gather(poll_loop(TELEGRAM_TOKEN), schedule_loop())
+    except asyncio.CancelledError:
+        logger.info("🛑 종료 신호 수신. 진행 중인 작업을 마치고 종료합니다.")
+
+
+def main():
+    logger.info("🤖 영남대 공지봇 상시 실행 시작 (Supabase 연동)...")
+
+    # ⚠️ [보안/안전 가드] 필수 환경변수 누락 시 무한 예외 통신 방지 및 즉각 자가 안전 종료
+    if not TELEGRAM_TOKEN or not SUPABASE_URL or not SUPABASE_KEY:
+        logger.error("🚨 [환경변수 에러] 필수 설정값(TELEGRAM_TOKEN, SUPABASE_URL, SUPABASE_KEY) 중 누락된 값이 있습니다.")
+        logger.error("   ㄴ 서버/로컬 폴더 내의 .env 파일 설정 상태를 다시 한번 확인해 주세요.")
+        sys.exit(1)
+
+    asyncio.run(run())
 
 if __name__ == "__main__":
     main()

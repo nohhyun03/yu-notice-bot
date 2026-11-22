@@ -36,10 +36,19 @@ WEBAPP_URL=https://<your_github_username>.github.io/<your_repository_name>/
 
 ### 2. 패키지 설치
 ```bash
-pip3 install requests beautifulsoup4 supabase python-dotenv
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
 ```
 
-### 3. 크론탭(Crontab) 주기 배치 등록 (평일 9시 ~ 17시 50분, 10분 주기)
+### 3. 상시 실행 서비스 등록 (systemd)
+봇은 항상 실행되며 `/start`, `/menu`에 즉시 응답하고, 공지 수집은 평일 9:00 ~ 17:50에 10분 간격으로 수행합니다.
 ```bash
-*/10 9-17 * * 1-5 cd /home/nohhyun03 && python3 telegram_bot.py > /dev/null 2>&1
+sudo cp deploy/yu-notice-bot.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now yu-notice-bot
+```
+
+### 4. 테스트
+```bash
+python3 -m unittest discover -s tests -v
 ```
